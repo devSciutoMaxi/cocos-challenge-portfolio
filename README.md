@@ -129,9 +129,18 @@ Importá [`postman_collection.json`](./postman_collection.json) en Postman. Incl
 ## Pruebas
 
 ```sh
-npm test
+npm test                  # unitarios + integración
+npm run test:unit         # solo unitarios: sin base de datos ni Docker
+npm run test:integration  # solo integración
 ```
 
-Los tests (ts-jest, con chequeo de tipos) corren contra la base de `DATABASE_URL` (idealmente una de desarrollo, no la de producción). Solo necesitan las tablas creadas (ver `db/schema.sql`): cada test crea su propio usuario, activo, precio y órdenes, y los borra al terminar, sin depender de datos previos. Cubren órdenes (MARKET, LIMIT, monto en pesos, rechazos, ventas, transferencias, cancelación, validaciones), concurrencia, portfolio y búsqueda.
+**`npm test` levanta solo un Postgres descartable con Docker (`docker-compose.test.yml`): sin volumen (los datos viven en memoria), en el puerto 5433, con el schema de `db/schema.sql` ya cargado, y lo destruye al terminar, pasen o fallen. Hace falta tener Docker corriendo; no hace falta crear ninguna base ni configurar `DATABASE_URL` (el `.env` se ignora en los tests).
 
-Además hay tests unitarios (`test/unit`) de la lógica pura: ledger y costo promedio, valuación, validación de entrada, reglas de rechazo y redondeo. No necesitan base de datos ni `DATABASE_URL`.
+- Cada test crea su propio usuario, activo, precio y órdenes, y los borra al terminar, sin depender de datos previos.
+- **Seguro anti-accidentes:** los tests se niegan a correr si el nombre de la base no incluye `test`.
+- **Usar otra base de test** (por ejemplo el service de Postgres de un pipeline de CI): `TEST_DATABASE_URL=postgres://usuario:clave@host:5432/mi_base_test TEST_DB_SKIP_DOCKER=1 npm test`.
+- Levantar o bajar el Postgres de test a mano: `npm run test:db:up` y `npm run test:db:down`.
+
+Cubren órdenes (MARKET, LIMIT, monto en pesos, rechazos, ventas, transferencias, cancelación, validaciones), concurrencia, portfolio y búsqueda. Se usa Postgres real, y no un simulador en memoria, porque la protección contra órdenes simultáneas (`SELECT ... FOR UPDATE`) solo se puede probar con bloqueos reales.
+
+Además hay tests unitarios (`test/unit`) de la lógica pura: ledger y costo promedio, valuación, validación de entrada, reglas de rechazo y redondeo. No necesitan base de datos ni Docker.

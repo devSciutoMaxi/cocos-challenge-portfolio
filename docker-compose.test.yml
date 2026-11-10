@@ -1,0 +1,22 @@
+# Postgres descartable SOLO para los tests: sin volumen (los datos viven en memoria y se pierden al
+# apagarlo), en un puerto distinto al habitual y con el schema cargado al iniciar.
+# Lo levanta y lo baja Jest solo (ver test/support/global-setup.ts); también se puede manejar a mano:
+#   npm run test:db:up     npm run test:db:down
+services:
+  db-test:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: cocos_test
+    ports:
+      - "5433:5432"
+    tmpfs:
+      - /var/lib/postgresql/data
+    volumes:
+      - ./db/schema.sql:/docker-entrypoint-initdb.d/1-schema.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d cocos_test"]
+      interval: 1s
+      timeout: 3s
+      retries: 30
