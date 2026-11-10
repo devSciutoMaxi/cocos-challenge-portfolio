@@ -1,0 +1,324 @@
+{
+  "info": {
+    "_postman_id": "f24a8991-a1a6-42f3-9452-9cab85f438c4",
+    "name": "Cocos Backend Challenge",
+    "description": "Colección para probar los endpoints documentados de la API Cocos. Configurá baseUrl, userId, instrumentId y marketQuery según tu entorno y los datos disponibles en la base de datos.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:3000",
+      "type": "string"
+    },
+    {
+      "key": "userId",
+      "value": "1",
+      "type": "string"
+    },
+    {
+      "key": "instrumentId",
+      "value": "1",
+      "type": "string"
+    },
+    {
+      "key": "marketQuery",
+      "value": "PAMP",
+      "type": "string"
+    },
+    {
+      "key": "orderId",
+      "value": "1",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "Portfolio",
+      "item": [
+        {
+          "name": "Obtener portfolio de usuario",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/portfolio?userId={{userId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "portfolio"
+              ],
+              "query": [
+                {
+                  "key": "userId",
+                  "value": "{{userId}}",
+                  "description": "ID del usuario"
+                }
+              ]
+            },
+            "description": "Devuelve el portfolio y el efectivo disponible para el usuario indicado."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Mercado",
+      "item": [
+        {
+          "name": "Buscar activos",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/market/search?q={{marketQuery}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "market",
+                "search"
+              ],
+              "query": [
+                {
+                  "key": "q",
+                  "value": "{{marketQuery}}",
+                  "description": "Ticker o nombre para buscar"
+                }
+              ]
+            },
+            "description": "Busca instrumentos cuyo ticker o nombre coincida con el término indicado."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "Órdenes",
+      "item": [
+        {
+          "name": "Crear orden MARKET por cantidad",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userId\": {{userId}},\n  \"instrumentId\": {{instrumentId}},\n  \"side\": \"BUY\",\n  \"type\": \"MARKET\",\n  \"size\": 1\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/orders",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "orders"
+              ]
+            },
+            "description": "Compra al último precio (close)."
+          },
+          "response": []
+        },
+        {
+          "name": "Crear orden MARKET por monto en pesos",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userId\": {{userId}},\n  \"instrumentId\": {{instrumentId}},\n  \"side\": \"BUY\",\n  \"type\": \"MARKET\",\n  \"amount\": 5000\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/orders",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "orders"
+              ]
+            },
+            "description": "Compra la cantidad entera máxima de acciones que entra en el monto."
+          },
+          "response": []
+        },
+        {
+          "name": "Crear orden LIMIT",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userId\": {{userId}},\n  \"instrumentId\": {{instrumentId}},\n  \"side\": \"BUY\",\n  \"type\": \"LIMIT\",\n  \"size\": 5,\n  \"price\": 100.5\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/orders",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "orders"
+              ]
+            },
+            "description": "Queda en estado NEW."
+          },
+          "response": []
+        },
+        {
+          "name": "Vender (SELL MARKET)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userId\": {{userId}},\n  \"instrumentId\": {{instrumentId}},\n  \"side\": \"SELL\",\n  \"type\": \"MARKET\",\n  \"size\": 1\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/orders",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "orders"
+              ]
+            },
+            "description": "Se rechaza (400, REJECTED) si no hay acciones suficientes."
+          },
+          "response": []
+        },
+        {
+          "name": "Transferencia entrante (CASH_IN)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userId\": {{userId}},\n  \"side\": \"CASH_IN\",\n  \"amount\": 10000\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/orders",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "orders"
+              ]
+            },
+            "description": "Suma pesos. No lleva instrumentId, type ni price."
+          },
+          "response": []
+        },
+        {
+          "name": "Transferencia saliente (CASH_OUT)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"userId\": {{userId}},\n  \"side\": \"CASH_OUT\",\n  \"amount\": 2000\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/orders",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "orders"
+              ]
+            },
+            "description": "Resta pesos. Se rechaza (400, REJECTED) si no alcanzan."
+          },
+          "response": []
+        },
+        {
+          "name": "Cancelar orden NEW",
+          "request": {
+            "method": "PATCH",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/orders/{{orderId}}/cancel",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "orders",
+                "{{orderId}}",
+                "cancel"
+              ]
+            },
+            "description": "Cancela una orden solo si su estado actual es NEW."
+          },
+          "response": []
+        }
+      ]
+    }
+  ]
+}

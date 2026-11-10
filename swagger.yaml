@@ -1,0 +1,158 @@
+openapi: 3.0.0
+info:
+  title: Cocos Backend Challenge
+  version: 1.0.0
+  description: API para el challenge técnico de Cocos - Backend
+servers:
+  - url: http://localhost:3000
+    description: Servidor local de desarrollo
+
+paths:
+  /api/portfolio:
+    get:
+      summary: Obtener el portfolio de un usuario
+      parameters:
+        - name: userId
+          in: query
+          required: true
+          schema:
+            type: integer
+            example: 1
+      responses:
+        '200':
+          description: Portfolio calculado exitosamente
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  accountValue:
+                    type: number
+                    description: Valor total de la cuenta
+                  availableCash:
+                    type: number
+                    description: Pesos disponibles para operar
+                  warnings:
+                    type: array
+                    description: Avisos, por ejemplo activos sin precio de mercado (no se incluyen en accountValue). Solo aparece si hay alguno
+                    items:
+                      type: string
+                  assets:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        ticker:
+                          type: string
+                        name:
+                          type: string
+                        shares:
+                          type: integer
+                        currentPrice:
+                          type: number
+                          nullable: true
+                          description: close más reciente. null si el activo no tiene precio de mercado
+                        instrumentId:
+                          type: integer
+                        totalValue:
+                          type: number
+                        returnPercentage:
+                          type: number
+                          description: Rendimiento total de la posición contra el costo de las órdenes FILLED
+                        dailyReturnPercentage:
+                          type: number
+                          nullable: true
+                          description: Retorno diario del activo, close contra previousClose
+        '400':
+          description: userId faltante o inválido
+        '404':
+          description: Usuario inexistente
+  /api/market/search:
+    get:
+      summary: Buscar activos por ticker o nombre
+      description: Búsqueda parcial sin distinguir mayúsculas. Excluye la moneda (ARS), devuelve hasta 50 resultados y pone primero el ticker exacto.
+      parameters:
+        - name: q
+          in: query
+          required: true
+          schema:
+            type: string
+            example: PAMP
+      responses:
+        '400':
+          description: Falta q, está vacío o es demasiado largo
+        '200':
+          description: Lista de activos similares
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id:
+                      type: integer
+                    ticker:
+                      type: string
+                    name:
+                      type: string
+                    type:
+                      type: string
+  /api/orders:
+    post:
+      summary: Enviar una orden al mercado
+      description: |
+        BUY / SELL: requieren userId, instrumentId, side, type y size o amount (price solo en LIMIT; las MARKET no lo llevan).
+        CASH_IN / CASH_OUT: requieren userId, side y amount en pesos enteros. No llevan instrumentId, type ni price; se ejecutan al instante (FILLED) sobre el instrumento ARS.
+        Si faltan pesos o acciones, la orden se guarda como REJECTED y se responde 400 con el motivo.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                userId:
+                  type: integer
+                instrumentId:
+                  type: integer
+                side:
+                  type: string
+                  enum: [BUY, SELL, CASH_IN, CASH_OUT]
+                type:
+                  type: string
+                  enum: [MARKET, LIMIT]
+                amount:
+                  type: number
+                  description: Monto en pesos. En BUY/SELL se convierte a la cantidad entera máxima de acciones (opcional si se usa size). En CASH_IN/CASH_OUT es el monto de la transferencia (entero)
+                size:
+                  type: integer
+                  description: Cantidad de acciones (opcional si se usa amount)
+                price:
+                  type: number
+                  description: Precio límite (requerido si type es LIMIT)
+      responses:
+        '201':
+          description: Orden creada exitosamente
+        '400':
+          description: Datos inválidos (nada se guarda) u orden rechazada por fondos/acciones insuficientes (se guarda como REJECTED)
+        '404':
+          description: Usuario o instrumento inexistente
+        '422':
+          description: El instrumento no tiene precio de mercado (orden MARKET)
+  /api/orders/{id}/cancel:
+    patch:
+      summary: Cancelar una orden en estado NEW
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Orden cancelada
+        '400':
+          description: Id inválido o la orden no está en estado NEW
+        '404':
+          description: Orden inexistente
