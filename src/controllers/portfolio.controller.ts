@@ -1,5 +1,5 @@
 import { NextFunction, Request, Response, Router } from 'express';
-import * as portfolioService from '../services/portfolio.service';
+import * as portfolioService from '../services/portfolio/portfolio.service';
 import { HttpError } from '../http-error';
 import { isPresent } from '../validators';
 

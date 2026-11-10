@@ -1,5 +1,5 @@
 import { NextFunction, Request, Response, Router } from 'express';
-import * as ordersService from '../services/orders.service';
+import * as ordersService from '../services/orders/orders.service';
 
 const router = Router();
 

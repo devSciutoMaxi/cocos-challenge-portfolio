@@ -30,7 +30,7 @@ API backend (Node.js + Express + PostgreSQL) para consultar portfolios, buscar a
 
 La API queda disponible en `http://localhost:3000` y la documentación Swagger en `http://localhost:3000/api-docs`.
 
-Otros scripts: `npm run typecheck` (chequea los tipos de `src/` y `test/` sin generar archivos) y `npm test`.
+Otros scripts: `npm run typecheck` (chequea los tipos de `src/` y `test/` sin generar archivos), `npm test` (todos los tests), `npm run test:unit` (solo los unitarios, sin base de datos) y `npm run test:integration`.
 
 ## TypeScript
 
@@ -38,6 +38,31 @@ Otros scripts: `npm run typecheck` (chequea los tipos de `src/` y `test/` sin ge
 - `src/types.ts` concentra los tipos compartidos: `Side`, `OrderType`, `OrderStatus`, las filas de la base y la interfaz `Db`, que cumplen tanto el `Pool` como el client de una transacción.
 - Lo que llega de afuera (body, query) se tipa como `unknown` y se valida antes de usarlo (`src/validators.ts`). Después de `normalizeOrder`, el resto del código trabaja con tipos seguros.
 - `pg` devuelve las columnas `numeric` como string, por eso `OrderRow.price` es `string`.
+
+## Estructura del código
+
+```
+src/
+  controllers/        # HTTP: leen la request, llaman al servicio y responden
+  services/
+    orders/
+      orders.types.ts   # tipos compartidos de órdenes (payload, orden normalizada, resultado)
+      order-input.ts    # valida y normaliza el body (sin base de datos)
+      order-rules.ts    # reglas de negocio puras: cantidad, rechazo, estado
+      orders.service.ts # orquesta: transacción, precio, ledger, guardado, cancelación
+    portfolio/
+      portfolio.types.ts # tipos compartidos del portfolio (posición, ledger, asset)
+      ledger.ts         # pura: órdenes FILLED -> pesos y posiciones (costo promedio)
+      valuation.ts      # pura: posiciones + precios -> activos valuados y warnings
+      portfolio.service.ts # lee de la base y arma la respuesta
+    market.service.ts
+  repositories/       # SQL: única capa que habla con la base
+  types.ts            # tipos globales: Side, OrderType, OrderStatus, filas de la base, Db
+  validators.ts       # parseo de enteros y números
+  money.ts            # redondeo a centavos
+```
+
+La lógica de negocio vive en funciones puras (`ledger`, `valuation`, `order-rules`, `order-input`) que no conocen la base ni Express, así se prueban con tests unitarios rápidos. Los servicios solo orquestan. Los tipos compartidos por varios archivos viven en archivos `*.types.ts`; los que usa un solo archivo quedan en él. Para validar una orden alcanza con el ledger (pesos y tenencias), sin consultar precios de mercado.
 
 ## Endpoints
 
@@ -108,3 +133,5 @@ npm test
 ```
 
 Los tests (ts-jest, con chequeo de tipos) corren contra la base de `DATABASE_URL` (idealmente una de desarrollo, no la de producción). Solo necesitan las tablas creadas (ver `db/schema.sql`): cada test crea su propio usuario, activo, precio y órdenes, y los borra al terminar, sin depender de datos previos. Cubren órdenes (MARKET, LIMIT, monto en pesos, rechazos, ventas, transferencias, cancelación, validaciones), concurrencia, portfolio y búsqueda.
+
+Además hay tests unitarios (`test/unit`) de la lógica pura: ledger y costo promedio, valuación, validación de entrada, reglas de rechazo y redondeo. No necesitan base de datos ni `DATABASE_URL`.

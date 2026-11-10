@@ -8,7 +8,9 @@
     "build": "tsc -p tsconfig.build.json",
     "dev": "tsx watch src/server.ts",
     "typecheck": "tsc --noEmit",
-    "test": "jest --runInBand --forceExit"
+    "test": "jest --runInBand --forceExit",
+    "test:unit": "jest test/unit",
+    "test:integration": "jest --runInBand --forceExit --testPathIgnorePatterns test/unit"
   },
   "dependencies": {
     "dotenv": "^16.3.1",
