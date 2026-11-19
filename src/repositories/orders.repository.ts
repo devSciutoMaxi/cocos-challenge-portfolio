@@ -20,7 +20,7 @@ export const createOrderRecord = async (orderData: NewOrder, db: Db = pool): Pro
   const { instrumentId, userId, size, price, type, side, status, datetime } = orderData;
   const query = `
     INSERT INTO orders (instrumentid, userid, size, price, type, side, status, datetime)
-    VALUES ($1, $2, $3, $4, $5, $6, $7, COALESCE($8, clock_timestamp))
+    VALUES ($1, $2, $3, $4, $5, $6, $7, COALESCE($8, clock_timestamp()))
     RETURNING *;
   `;
   const values = [instrumentId, userId, size, price, type, side, status, datetime || null];

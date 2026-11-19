@@ -34,3 +34,14 @@ CREATE TABLE IF NOT EXISTS public.orders (
 	status varchar(20) NULL,
 	datetime timestamp NULL
 );
+
+-- Idempotencia de órdenes: guarda la respuesta de cada Idempotency-Key para devolverla si el cliente reintenta.
+-- Clave primaria (userid, key): la misma key puede usarla otro usuario sin chocar.
+CREATE TABLE IF NOT EXISTS public.idempotency_keys (
+	userid int4 NOT NULL,
+	"key" varchar(100) NOT NULL,
+	request_hash char(64) NOT NULL,
+	response jsonb NOT NULL,
+	created_at timestamp NOT NULL DEFAULT now(),
+	PRIMARY KEY (userid, "key")
+);

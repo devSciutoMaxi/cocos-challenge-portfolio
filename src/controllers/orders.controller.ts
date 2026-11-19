@@ -10,8 +10,12 @@ router.post('/', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { userId, instrumentId, side, type, amount, size, price } = req.body || {};
 
-    const result = await ordersService.processOrder({ userId, instrumentId, side, type, amount, size, price });
+    const result = await ordersService.processOrder(
+      { userId, instrumentId, side, type, amount, size, price },
+      req.header('Idempotency-Key')
+    );
 
+    if (result.replayed) res.set('Idempotent-Replayed', 'true');
     if (result.order.status === 'REJECTED') {
       return res.status(400).json({
         message: 'La orden fue rechazada',

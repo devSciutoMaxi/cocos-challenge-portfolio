@@ -59,6 +59,7 @@ export const createTradingFixture = async (): Promise<Fixture> => {
 export const removeTradingFixture = async ({ userId, instrumentId, arsId, arsCreated }: Fixture): Promise<void> => {
   if (!userId) return;
   await pool.query('DELETE FROM orders WHERE userid = $1', [userId]);
+  await pool.query('DELETE FROM idempotency_keys WHERE userid = $1', [userId]);
   if (instrumentId) {
     await pool.query('DELETE FROM marketdata WHERE instrumentid = $1', [instrumentId]);
     await pool.query('DELETE FROM instruments WHERE id = $1', [instrumentId]);
