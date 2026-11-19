@@ -49,7 +49,8 @@ src/
       orders.types.ts   # tipos compartidos de órdenes (payload, orden normalizada, resultado)
       order-input.ts    # valida y normaliza el body (sin base de datos)
       order-rules.ts    # reglas de negocio puras: cantidad, rechazo, estado
-      orders.service.ts # orquesta: transacción, precio, ledger, guardado, cancelación
+      idempotency.ts    # Idempotency-Key: valida la key y calcula la huella de la orden
+      orders.service.ts # orquesta: transacción, idempotencia, precio, ledger, guardado, cancelación
     portfolio/
       portfolio.types.ts # tipos compartidos del portfolio (posición, ledger, asset)
       ledger.ts         # pura: órdenes FILLED -> pesos y posiciones (costo promedio)
@@ -84,6 +85,25 @@ La lógica de negocio vive en funciones puras (`ledger`, `valuation`, `order-rul
 - **BUY / SELL**: `userId`, `instrumentId`, `side`, `type` y `size` (acciones) o `amount` (pesos). `price` solo en `LIMIT`; una `MARKET` no lo lleva.
 - **CASH_IN / CASH_OUT**: `userId`, `side` y `amount` en pesos enteros. No llevan `instrumentId`, `type` ni `price`.
 
+### Reintentos seguros (Idempotency-Key)
+
+`POST /api/orders` acepta un header opcional `Idempotency-Key` (texto de 1 a 100 caracteres; lo recomendable es un UUID generado por el cliente una vez por intención de operar y reutilizado en cada reintento).
+
+```sh
+curl -X POST localhost:3000/api/orders \
+  -H 'Content-Type: application/json' \
+  -H 'Idempotency-Key: 6f1c2a9e-3b7d-4c1a-9e55-0d2f8a7b1c34' \
+  -d '{"userId":1,"side":"CASH_IN","amount":1000}'
+```
+
+| Situación | Resultado |
+|---|---|
+| Primera vez con esa key | Procesa la orden y guarda la respuesta |
+| Reintento con la misma key y la misma orden | Devuelve la misma respuesta (mismo `id`) con el header `Idempotent-Replayed: true`, sin crear otra orden |
+| Misma key con una orden distinta | 422 |
+| Key vacía o de más de 100 caracteres | 400 |
+| Sin header | Funciona como siempre |
+
 ## Decisiones de diseño
 
 La tenencia y los pesos no se guardan en una tabla aparte. Se reconstruyen con las órdenes `FILLED`, ordenadas por `datetime` y luego por `id`:
@@ -95,7 +115,7 @@ La tenencia y los pesos no se guardan en una tabla aparte. Se reconstruyen con l
 
 `NEW`, `REJECTED` y `CANCELLED` quedan en el historial y no mueven la cuenta. Una orden `LIMIT` no se ejecuta sola: el mercado no se simula.
 
-**Fecha de las órdenes.** La asigna la base de datos (`clock_timestamp()`), no el servidor. La columna `datetime` es `timestamp` sin zona horaria, y mezclar el reloj de la base con el de Node puede dejar una orden nueva "antes" de otra anterior y romper el costo promedio.
+**Fecha de las órdenes.** La asigna la base de datos con `clock_timestamp()`, no el servidor ni `NOW()`. `NOW()` devuelve el inicio de la transacción, y cada orden espera el lock del usuario antes de insertar: una orden que empezó antes pero tomó el lock después quedaría con fecha anterior a otra que ya se ejecutó, y el ledger, que ordena por `datetime`, calcularía mal el costo promedio. `clock_timestamp()` se evalúa en el `INSERT`, con el lock ya tomado, así que el orden por fecha coincide con el orden de ejecución de cada usuario (y se desempata por `id`).
 
 **Rendimiento.** `returnPercentage` es el rendimiento total de la posición contra el costo promedio de las órdenes `FILLED`. `dailyReturnPercentage` es el retorno del activo, `(close - previousClose) / previousClose`. El último precio es el `close` de la fila más reciente de `marketdata` (columna `date`). Si un activo no tiene precio, se informa en `warnings`, sus valores van en `null` y no se suma a `accountValue` (no se lo valúa en 0).
 
@@ -109,11 +129,15 @@ La tenencia y los pesos no se guardan en una tabla aparte. Se reconstruyen con l
 
 **Concurrencia.** Cada orden se procesa en una transacción que bloquea la fila del usuario (`SELECT ... FOR UPDATE`). Dos órdenes simultáneas del mismo usuario se ejecutan una detrás de otra, así no se gasta dos veces el mismo saldo. Los dos casos tienen test.
 
+**Idempotencia.** El cliente puede reintentar un `POST /api/orders` (por ejemplo tras un timeout) sin duplicar la orden. Con el usuario ya bloqueado, se busca la key en `idempotency_keys`: si existe y la orden es la misma (se compara un hash de la orden normalizada), se devuelve la respuesta guardada; si no existe, se procesa y se guarda la respuesta **en la misma transacción** que la orden, así nunca queda una key sin su orden. La búsqueda va después del lock a propósito: dos requests simultáneos con la misma key se ponen en fila y el segundo encuentra la key del primero. Idempotencia y lock resuelven problemas distintos: el lock ordena pedidos simultáneos distintos, la idempotencia evita duplicar un mismo pedido repetido. Los rechazos (`REJECTED`) también se guardan, así que un reintento devuelve el mismo rechazo aunque el saldo haya cambiado. Un error de validación, un 404 o un 422 no consumen la key.
+
 **Búsqueda.** Parcial y sin distinguir mayúsculas, sobre ticker y nombre. Excluye la moneda, trata `%` y `_` como texto literal, devuelve hasta 50 resultados y ordena primero el ticker exacto y luego los que empiezan igual.
 
 **Errores.** Los 4xx devuelven `{ "error": "..." }`. Los 5xx se loguean y devuelven un mensaje genérico, sin detalles internos.
 
-**Base de datos.** No se modificó el esquema. Las tablas no tienen foreign keys ni `NOT NULL`, así que la API valida que el usuario y el instrumento existan. Para los volúmenes del challenge no hacen falta índices; con muchos datos convendría indexar `orders(userid, status)` y `marketdata(instrumentid, date DESC)`.
+**Base de datos.** Se respetan las tablas del challenge y se agrega una: `idempotency_keys` (clave primaria `(userid, key)`, hash de la orden, respuesta en `jsonb` y fecha). Está al final de `db/schema.sql`. Si tu base ya tiene las tablas del challenge, creala con `psql "$DATABASE_URL" -f db/schema.sql`: el archivo usa `CREATE TABLE IF NOT EXISTS`, así que no toca lo existente. Sin esa tabla, todo funciona igual salvo los pedidos que envían `Idempotency-Key`, que fallan con 500.
+
+La base original tiene foreign keys (`orders.userid`, `orders.instrumentid` y `marketdata.instrumentid`) pero no `NOT NULL`. `db/schema.sql`, que usan los tests, no las incluye. Igual la API valida que el usuario y el instrumento existan y responde 404 antes de que una FK pueda fallar. Para los volúmenes del challenge no hacen falta índices; con muchos datos convendría indexar `orders(userid, status)` y `marketdata(instrumentid, date DESC)`.
 
 ## Limitaciones conocidas
 
@@ -121,6 +145,9 @@ La tenencia y los pesos no se guardan en una tabla aparte. Se reconstruyen con l
 - Una `LIMIT` valida fondos y acciones al enviarse, pero no los reserva: dos `LIMIT` pueden comprometer el mismo saldo. No se simula el mercado, así que ninguna se ejecuta sola.
 - No hay autenticación (el enunciado no la pide): `userId` viaja en la request.
 - Una transferencia es de pesos enteros por el tipo de la columna `size`.
+- Las `Idempotency-Key` no expiran: no hay TTL ni limpieza periódica. En producción convendría vencerlas (por ejemplo a las 24 horas) con un job que borre las viejas.
+- `datetime` es `timestamp` sin zona horaria y `pg` lo interpreta en la hora local del proceso, así que la fecha que devuelve la API puede salir corrida según la zona de la máquina (visto en desarrollo: 3 horas en UTC-3). No afecta los saldos ni el orden de las órdenes. Se resolvería ejecutando con `TZ=UTC` o registrando un type parser para esa columna.
+- El ledger se reconstruye leyendo todas las órdenes `FILLED` del usuario con el lock tomado: el costo crece con el historial. Para más volumen, una tabla de saldo y posiciones actualizada en la misma transacción (con las órdenes como fuente de verdad) lo resolvería.
 
 ## Postman
 
@@ -134,13 +161,13 @@ npm run test:unit         # solo unitarios: sin base de datos ni Docker
 npm run test:integration  # solo integración
 ```
 
-**`npm test` levanta solo un Postgres descartable con Docker (`docker-compose.test.yml`): sin volumen (los datos viven en memoria), en el puerto 5433, con el schema de `db/schema.sql` ya cargado, y lo destruye al terminar, pasen o fallen. Hace falta tener Docker corriendo; no hace falta crear ninguna base ni configurar `DATABASE_URL` (el `.env` se ignora en los tests).
+`npm test` levanta solo un Postgres descartable con Docker (`docker-compose.test.yml`): sin volumen (los datos viven en memoria), en el puerto 5433, con el schema de `db/schema.sql` ya cargado, y lo destruye al terminar, pasen o fallen. Hace falta tener Docker corriendo; no hace falta crear ninguna base ni configurar `DATABASE_URL` (el `.env` se ignora en los tests).
 
 - Cada test crea su propio usuario, activo, precio y órdenes, y los borra al terminar, sin depender de datos previos.
 - **Seguro anti-accidentes:** los tests se niegan a correr si el nombre de la base no incluye `test`.
 - **Usar otra base de test** (por ejemplo el service de Postgres de un pipeline de CI): `TEST_DATABASE_URL=postgres://usuario:clave@host:5432/mi_base_test TEST_DB_SKIP_DOCKER=1 npm test`.
 - Levantar o bajar el Postgres de test a mano: `npm run test:db:up` y `npm run test:db:down`.
 
-Cubren órdenes (MARKET, LIMIT, monto en pesos, rechazos, ventas, transferencias, cancelación, validaciones), concurrencia, portfolio y búsqueda. Se usa Postgres real, y no un simulador en memoria, porque la protección contra órdenes simultáneas (`SELECT ... FOR UPDATE`) solo se puede probar con bloqueos reales.
+Cubren órdenes (MARKET, LIMIT, monto en pesos, rechazos, ventas, transferencias, cancelación, validaciones), concurrencia, idempotencia, portfolio y búsqueda. Se usa Postgres real, y no un simulador en memoria, porque la protección contra órdenes simultáneas (`SELECT ... FOR UPDATE`) solo se puede probar con bloqueos reales.
 
 Además hay tests unitarios (`test/unit`) de la lógica pura: ledger y costo promedio, valuación, validación de entrada, reglas de rechazo y redondeo. No necesitan base de datos ni Docker.
