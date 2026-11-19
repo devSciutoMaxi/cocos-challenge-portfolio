@@ -95,7 +95,7 @@ La tenencia y los pesos no se guardan en una tabla aparte. Se reconstruyen con l
 
 `NEW`, `REJECTED` y `CANCELLED` quedan en el historial y no mueven la cuenta. Una orden `LIMIT` no se ejecuta sola: el mercado no se simula.
 
-**Fecha de las órdenes.** La asigna la base de datos (`NOW()`), no el servidor. La columna `datetime` es `timestamp` sin zona horaria, y mezclar el reloj de la base con el de Node puede dejar una orden nueva "antes" de otra anterior y romper el costo promedio.
+**Fecha de las órdenes.** La asigna la base de datos (`clock_timestamp()`), no el servidor. La columna `datetime` es `timestamp` sin zona horaria, y mezclar el reloj de la base con el de Node puede dejar una orden nueva "antes" de otra anterior y romper el costo promedio.
 
 **Rendimiento.** `returnPercentage` es el rendimiento total de la posición contra el costo promedio de las órdenes `FILLED`. `dailyReturnPercentage` es el retorno del activo, `(close - previousClose) / previousClose`. El último precio es el `close` de la fila más reciente de `marketdata` (columna `date`). Si un activo no tiene precio, se informa en `warnings`, sus valores van en `null` y no se suma a `accountValue` (no se lo valúa en 0).
 

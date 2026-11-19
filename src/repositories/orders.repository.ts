@@ -15,12 +15,12 @@ export const getLatestMarketPrice = async (instrumentId: number, db: Db = pool):
 };
 
 // Insertar una nueva orden.
-// La fecha la asigna la base (NOW()) para que todas las órdenes usen el mismo reloj.
+// La fecha la asigna la base (clock_timestamp()) para que todas las órdenes usen el mismo reloj.
 export const createOrderRecord = async (orderData: NewOrder, db: Db = pool): Promise<OrderRow> => {
   const { instrumentId, userId, size, price, type, side, status, datetime } = orderData;
   const query = `
     INSERT INTO orders (instrumentid, userid, size, price, type, side, status, datetime)
-    VALUES ($1, $2, $3, $4, $5, $6, $7, COALESCE($8, NOW()))
+    VALUES ($1, $2, $3, $4, $5, $6, $7, COALESCE($8, clock_timestamp))
     RETURNING *;
   `;
   const values = [instrumentId, userId, size, price, type, side, status, datetime || null];
