@@ -1,7 +1,7 @@
 import * as ordersRepository from '../../repositories/orders.repository';
 import * as usersRepository from '../../repositories/users.repository';
 import * as idempotencyRepository from '../../repositories/idempotency.repository';
-import * as portfolioService from '../portfolio/portfolio.service';
+import * as projectionService from '../portfolio/projection.service';
 import { withTransaction } from '../../db/connection';
 import { HttpError } from '../../http-error';
 import { parsePositiveInteger } from '../../validators';
@@ -72,8 +72,9 @@ export const processOrder = async (payload: OrderPayload, idempotencyKeyHeader?:
       ? await resolveCashExecution(order, db)
       : await resolveTradeExecution(order, db);
 
-    // Para validar solo hacen falta los pesos y las tenencias: no se consultan precios de mercado.
-    const ledger = await portfolioService.getLedger(order.userId, db);
+    // Para validar solo hacen falta los pesos y las tenencias: se leen de la proyección (pocas filas)
+    // y no se consultan precios de mercado. La lectura va después del lock, dentro de la transacción.
+    const ledger = await projectionService.getLedgerLocked(order.userId, db);
 
     const rejectionReason = getRejectionReason({ side: order.side, ledger, ...execution });
     const status = decideStatus(order.type, rejectionReason);
@@ -90,6 +91,26 @@ export const processOrder = async (payload: OrderPayload, idempotencyKeyHeader?:
       },
       db
     );
+
+    // Si la orden se ejecutó, la proyección se actualiza en la misma transacción: o se guardan la orden y
+    // la proyección, o ninguna. `type: 'MONEDA'` marca las transferencias; una compra/venta nunca es MONEDA.
+    if (status === 'FILLED') {
+      await projectionService.applyFilledOrder(
+        order.userId,
+        ledger,
+        {
+          instrumentid: execution.instrumentId,
+          size: execution.size,
+          price: execution.price,
+          side: order.side,
+          type: order.isCash ? 'MONEDA' : 'ACCIONES',
+          ticker: null,
+          name: null,
+        },
+        orderRecord.id,
+        db
+      );
+    }
 
     const result: ProcessOrderResult = { order: orderRecord, rejectionReason };
 
