@@ -102,40 +102,87 @@ paths:
     post:
       summary: Enviar una orden al mercado
       description: |
-        BUY / SELL: requieren userId, instrumentId, side, type y size o amount (price solo en LIMIT; las MARKET no lo llevan).
-        CASH_IN / CASH_OUT: requieren userId, side y amount en pesos enteros. No llevan instrumentId, type ni price; se ejecutan al instante (FILLED) sobre el instrumento ARS.
-        Si faltan pesos o acciones, la orden se guarda como REJECTED y se responde 400 con el motivo.
+        Qué enviar según lo que querés hacer:
+
+        | Querés... | side | type | instrumentId | size o amount | price |
+        |---|---|---|---|---|---|
+        | Comprar o vender a precio de mercado | BUY / SELL | MARKET | requerido | uno de los dos | no se envía |
+        | Comprar o vender a un precio que fijás | BUY / SELL | LIMIT | requerido | uno de los dos | requerido |
+        | Cargar o retirar pesos | CASH_IN / CASH_OUT | opcional (solo MARKET) | no se envía | amount en pesos enteros | no se envía |
+
+        - **MARKET** se ejecuta al instante al último precio y queda FILLED. **LIMIT** queda NEW (el mercado no se simula).
+        - `size` es la cantidad exacta de acciones. `amount` es un monto en pesos: se calcula `floor(amount / precio)` acciones (sin fracciones; los pesos sobrantes no se gastan) y después se valida igual que con `size`: en una compra, que alcancen los pesos para `size × precio`; en una venta, que haya acciones suficientes. Si el monto no alcanza ni para una acción, responde 400 y no se guarda nada. Si se envían los dos, gana `size`.
+        - En CASH_IN / CASH_OUT no hace falta `type`: se ejecutan siempre como MARKET, a precio 1 y quedan FILLED (si se envía, solo se acepta MARKET; LIMIT responde 400). El monto va en `amount`; `size` también se acepta y significa lo mismo (pesos enteros).
+        - Si faltan pesos o acciones, la orden se guarda como REJECTED y se responde 400 con el motivo.
+        - Un dato inválido responde 400 y no guarda nada.
       requestBody:
         required: true
         content:
           application/json:
             schema:
               type: object
+              required: [userId, side]
               properties:
                 userId:
                   type: integer
                 instrumentId:
                   type: integer
+                  description: Activo a comprar o vender. Solo en BUY / SELL
                 side:
                   type: string
                   enum: [BUY, SELL, CASH_IN, CASH_OUT]
                 type:
                   type: string
                   enum: [MARKET, LIMIT]
+                  description: Obligatorio en BUY / SELL. En CASH_IN / CASH_OUT no hace falta y no cambia nada (siempre se ejecutan como MARKET); solo se rechaza LIMIT
                 amount:
                   type: number
                   description: Monto en pesos. En BUY/SELL se convierte a la cantidad entera máxima de acciones (opcional si se usa size). En CASH_IN/CASH_OUT es el monto de la transferencia (entero)
                 size:
                   type: integer
-                  description: Cantidad de acciones (opcional si se usa amount)
+                  description: Cantidad de acciones (opcional si se usa amount). En CASH_IN / CASH_OUT también se acepta y equivale a los pesos de la transferencia
                 price:
                   type: number
-                  description: Precio límite (requerido si type es LIMIT)
+                  description: Precio límite. Requerido si type es LIMIT; no se envía en MARKET
+            examples:
+              compra_market_por_cantidad:
+                summary: Comprar 10 acciones a precio de mercado
+                value: { userId: 1, instrumentId: 47, side: BUY, type: MARKET, size: 10 }
+              compra_market_por_monto:
+                summary: Comprar a mercado invirtiendo hasta $50.000
+                value: { userId: 1, instrumentId: 47, side: BUY, type: MARKET, amount: 50000 }
+              venta_market:
+                summary: Vender 5 acciones a precio de mercado
+                value: { userId: 1, instrumentId: 47, side: SELL, type: MARKET, size: 5 }
+              compra_limit:
+                summary: Compra límite a $900 (queda NEW)
+                value: { userId: 1, instrumentId: 47, side: BUY, type: LIMIT, size: 10, price: 900 }
+              ingreso_de_pesos:
+                summary: Cargar $10.000 en la cuenta
+                value: { userId: 1, side: CASH_IN, amount: 10000 }
+              retiro_de_pesos:
+                summary: Retirar $5.000 de la cuenta
+                value: { userId: 1, side: CASH_OUT, amount: 5000 }
       responses:
         '201':
           description: Orden creada exitosamente
+          content:
+            application/json:
+              example: { id: 12, instrumentid: 47, userid: 1, size: 10, price: '925.85', type: MARKET, side: BUY, status: FILLED, datetime: '2026-11-19T17:30:54.406Z' }
         '400':
           description: Datos inválidos (nada se guarda) u orden rechazada por fondos/acciones insuficientes (se guarda como REJECTED)
+          content:
+            application/json:
+              examples:
+                orden_rechazada:
+                  summary: Orden rechazada (se guarda como REJECTED)
+                  value:
+                    message: La orden fue rechazada
+                    reason: No hay acciones suficientes de este activo
+                    order: { id: 13, instrumentid: 47, userid: 1, size: 100, price: '925.85', type: MARKET, side: SELL, status: REJECTED, datetime: '2026-11-19T17:31:10.000Z' }
+                dato_invalido:
+                  summary: Dato inválido (no se guarda nada)
+                  value: { error: 'Las órdenes MARKET no llevan price: se ejecutan al último precio', code: BAD_REQUEST }
         '404':
           description: Usuario o instrumento inexistente
         '422':
