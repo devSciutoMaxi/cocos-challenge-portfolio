@@ -1,4 +1,4 @@
-import { buildLedger, heldPositions, sharesOf } from '../../src/services/portfolio/ledger';
+import { applyOrder, buildLedger, emptyLedger, heldPositions, sharesOf } from '../../src/services/portfolio/ledger';
 import type { LedgerOrder } from '../../src/services/portfolio/portfolio.types';
 
 const ARS = 1;
@@ -91,5 +91,40 @@ describe('sharesOf y heldPositions', () => {
     ]);
 
     expect(heldPositions(ledger).map(([id]) => id)).toEqual([PAMP]);
+  });
+});
+
+describe('applyOrder', () => {
+  const history = [
+    cash('CASH_IN', 10000),
+    trade('BUY', GGAL, 10, 100),
+    trade('BUY', PAMP, 5, 200),
+    trade('SELL', GGAL, 4, 120),
+    cash('CASH_OUT', 500),
+  ];
+
+  test('aplicar las órdenes una por una da lo mismo que buildLedger', () => {
+    const incremental = emptyLedger();
+    history.forEach((order) => applyOrder(incremental, order));
+    const rebuilt = buildLedger(history);
+
+    expect(incremental.cash).toBe(rebuilt.cash);
+    expect([...incremental.positions.entries()]).toEqual([...rebuilt.positions.entries()]);
+  });
+
+  test('modifica el ledger que recibe', () => {
+    const ledger = emptyLedger();
+    applyOrder(ledger, cash('CASH_IN', 1000));
+
+    expect(ledger.cash).toBe(1000);
+  });
+
+  test('una venta de más deja las acciones en negativo, igual que buildLedger (dato raro del dataset)', () => {
+    const ledger = emptyLedger();
+    applyOrder(ledger, trade('BUY', GGAL, 20, 100));
+    applyOrder(ledger, trade('SELL', GGAL, 30, 110));
+
+    expect(sharesOf(ledger, GGAL)).toBe(-10);
+    expect(heldPositions(ledger)).toEqual([]);
   });
 });

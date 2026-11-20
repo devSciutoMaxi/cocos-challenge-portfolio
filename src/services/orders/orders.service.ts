@@ -1,11 +1,13 @@
 import * as ordersRepository from '../../repositories/orders.repository';
 import * as usersRepository from '../../repositories/users.repository';
-import * as portfolioService from '../portfolio/portfolio.service';
+import * as idempotencyRepository from '../../repositories/idempotency.repository';
+import * as projectionService from '../portfolio/projection.service';
 import { withTransaction } from '../../db/connection';
 import { HttpError } from '../../http-error';
 import { parsePositiveInteger } from '../../validators';
 import type { Db, OrderRow } from '../../types';
 import { normalizeOrder } from './order-input';
+import { hashOrder, parseIdempotencyKey } from './idempotency';                          // NUEVO
 import { decideStatus, getRejectionReason, resolveTradeSize } from './order-rules';
 import type { CashOrder, OrderPayload, ProcessOrderResult, TradeOrder } from './orders.types';
 
@@ -43,8 +45,9 @@ const resolveTradeExecution = async (order: TradeOrder, db: Db): Promise<Executi
   return { instrumentId: instrument.id, price, size: resolveTradeSize(order, price) };
 };
 
-export const processOrder = async (payload: OrderPayload): Promise<ProcessOrderResult> => {
+export const processOrder = async (payload: OrderPayload, idempotencyKeyHeader?: unknown): Promise<ProcessOrderResult> => {
   const order = normalizeOrder(payload);
+  const idempotencyKey = parseIdempotencyKey(idempotencyKeyHeader);
 
   // Todo ocurre en una transacción con el usuario bloqueado (SELECT ... FOR UPDATE):
   // dos órdenes del mismo usuario se procesan una detrás de otra, así no se gasta dos veces el mismo saldo.
@@ -52,12 +55,26 @@ export const processOrder = async (payload: OrderPayload): Promise<ProcessOrderR
     const user = await usersRepository.lockUserById(order.userId, db);
     if (!user) throw new HttpError('Usuario inexistente', 404);
 
+    // Idempotencia: con el usuario ya bloqueado, si esta key ya se usó se devuelve la respuesta guardada
+    // sin crear nada. Si la key se reutilizó con una orden distinta, es un error del cliente (422).
+    const requestHash = hashOrder(order);
+    if (idempotencyKey) {
+      const stored = await idempotencyRepository.findByKey(order.userId, idempotencyKey, db);
+      if (stored) {
+        if (stored.request_hash !== requestHash) {
+          throw new HttpError('La Idempotency-Key ya se usó con una orden distinta', 422);
+        }
+        return { ...(stored.response as ProcessOrderResult), replayed: true };
+      }
+    }
+
     const execution = order.isCash
       ? await resolveCashExecution(order, db)
       : await resolveTradeExecution(order, db);
 
-    // Para validar solo hacen falta los pesos y las tenencias: no se consultan precios de mercado.
-    const ledger = await portfolioService.getLedger(order.userId, db);
+    // Para validar solo hacen falta los pesos y las tenencias: se leen de la proyección (pocas filas)
+    // y no se consultan precios de mercado. La lectura va después del lock, dentro de la transacción.
+    const ledger = await projectionService.getLedgerLocked(order.userId, db);
 
     const rejectionReason = getRejectionReason({ side: order.side, ledger, ...execution });
     const status = decideStatus(order.type, rejectionReason);
@@ -75,7 +92,34 @@ export const processOrder = async (payload: OrderPayload): Promise<ProcessOrderR
       db
     );
 
-    return { order: orderRecord, rejectionReason };
+    // Si la orden se ejecutó, la proyección se actualiza en la misma transacción: o se guardan la orden y
+    // la proyección, o ninguna. `type: 'MONEDA'` marca las transferencias; una compra/venta nunca es MONEDA.
+    if (status === 'FILLED') {
+      await projectionService.applyFilledOrder(
+        order.userId,
+        ledger,
+        {
+          instrumentid: execution.instrumentId,
+          size: execution.size,
+          price: execution.price,
+          side: order.side,
+          type: order.isCash ? 'MONEDA' : 'ACCIONES',
+          ticker: null,
+          name: null,
+        },
+        orderRecord.id,
+        db
+      );
+    }
+
+    const result: ProcessOrderResult = { order: orderRecord, rejectionReason };
+
+    // Se guarda en la misma transacción que la orden: si algo falla, no queda ni la orden ni la key.
+    if (idempotencyKey) {
+      await idempotencyRepository.save(order.userId, idempotencyKey, requestHash, result, db);
+    }
+
+    return result;
   });
 };
 
