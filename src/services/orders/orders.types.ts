@@ -39,4 +39,6 @@ export type NormalizedOrder = CashOrder | TradeOrder;
 export interface ProcessOrderResult {
   order: OrderRow;
   rejectionReason: string | null;
+  // true si es la respuesta guardada de un reintento con la misma Idempotency-Key.
+  replayed?: boolean;
 }
